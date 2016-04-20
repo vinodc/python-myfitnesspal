@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 from getpass import getpass
 import logging
+from pprint import pprint
 
 from blessed import Terminal
 from dateutil.parser import parse as dateparse
@@ -94,15 +95,19 @@ def delete_password(args, *extra, **kwargs):
     delete_password_in_keyring(args.username)
 
 
+def _default_arg_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'username',
+        help='The MyFitnessPal username to obtain data for.'
+    )
+    return parser
+
 @command(
     "Display MyFitnessPal data for a given date.",
 )
 def day(args, *extra, **kwargs):
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'username',
-        help='The MyFitnessPal username for which to delete a stored password.'
-    )
+    parser = _default_arg_parser()
     parser.add_argument(
         'date',
         nargs='?',
@@ -118,7 +123,7 @@ def day(args, *extra, **kwargs):
 
     t = Terminal()
 
-    print(t.blue(args.date.strftime('%Y-%m-%d')))
+    print(t.green(args.date.strftime('%Y-%m-%d')))
     for meal in day.meals:
         print(t.bold(meal.name.title()))
         for entry in meal.entries:
@@ -141,3 +146,40 @@ def day(args, *extra, **kwargs):
     print(u'Water: {amount}'.format(amount=day.water))
     if day.notes:
         print(t.italic(day.notes))
+
+@command(
+    "Get Nutrition Goal macros.",
+)
+def get_nutri_goals(args, *extra, **kwargs):
+    parser = _default_arg_parser()
+    args = parser.parse_args(extra)
+
+    password = get_password_from_keyring_or_interactive(args.username)
+    client = Client(args.username, password)
+
+    goals = client.get_nutrition_goals()
+
+    _print_goals(goals)
+
+@command(
+    "Change Nutrition Goal macros.",
+)
+def change_nutri_goals(args, *extra, **kwargs):
+    parser = _default_arg_parser()
+    parser.add_argument('--protein', help='Protein (g)', type=float)
+    parser.add_argument('--carbs', help='Carbohydrates (g)', type=float)
+    parser.add_argument('--fat', help='Fat (g)', type=float)
+    args = parser.parse_args(extra)
+
+    password = get_password_from_keyring_or_interactive(args.username)
+    client = Client(args.username, password)
+
+    goals = client.set_all_nutrition_goals_by_macros(
+        protein=args.protein, fat=args.fat, carbohydrates=args.carbs)
+
+    _print_goals(goals)
+
+def _print_goals(goals):
+    t = Terminal()
+    print(t.green(goals['valid_from']))
+    pprint(goals['default_goal'])

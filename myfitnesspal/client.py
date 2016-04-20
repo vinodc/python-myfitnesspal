@@ -1,6 +1,8 @@
 import datetime
+import calendar
 import logging
 import re
+import json
 
 import lxml.html
 from measurement.measures import Energy, Weight, Volume
@@ -29,11 +31,17 @@ class Client(MFPBase):
     }
     DEFAULT_MEASURE_AND_UNIT = {
         'calories': (Energy, 'Calorie'),
-        'carbohydrates': (Weight, 'g'),
-        'fat': (Weight, 'g'),
         'protein': (Weight, 'g'),
-        'sodium': (Weight, 'mg'),
+        'fat': (Weight, 'g'),
+        'saturated_fat': (Weight, 'g'),
+        'monounsaturated_fat': (Weight, 'g'),
+        'polyunsaturated_fat': (Weight, 'g'),
+        'carbohydrates': (Weight, 'g'),
         'sugar': (Weight, 'g'),
+        'fiber': (Weight, 'g'),
+        'sodium': (Weight, 'mg'),
+        'potassium': (Weight, 'mg'),
+        'cholesterol': (Weight, 'mg'),
     }
 
     def __init__(self, username, password=None, login=True, unit_aware=False):
@@ -105,7 +113,7 @@ class Client(MFPBase):
         self._user_metadata = self._get_user_metadata()
 
     def _get_auth_data(self):
-        result = self._get_request_for_url(
+        result = self._request(
             parse.urljoin(
                 self.BASE_URL_SECURE,
                 '/user/auth_token'
@@ -141,7 +149,7 @@ class Client(MFPBase):
             self.BASE_API_URL,
             '/v2/users/{user_id}'.format(user_id=self.user_id)
         ) + '?' + query_string
-        result = self._get_request_for_url(metadata_url, send_token=True)
+        result = self._request(metadata_url, send_token=True)
         if not result.ok:
             logger.warning(
                 "Unable to fetch user metadata; this may cause Myfitnesspal "
@@ -149,6 +157,7 @@ class Client(MFPBase):
                 "e-mail address rather than your basic username; status %s.",
                 result.status_code,
             )
+            return {}
 
         return result.json()['item']
 
@@ -172,9 +181,8 @@ class Client(MFPBase):
             'measurements/edit'
         ) + '?page=%d&type=%d' % (page, measurement_id)
 
-    def _get_request_for_url(
-        self, url, send_token=False, headers=None, **kwargs
-    ):
+    def _request(self, url, method='get', send_token=False, headers=None,
+                 data={}, **kwargs):
         if headers is None:
             headers = {}
 
@@ -187,7 +195,13 @@ class Client(MFPBase):
                 'mfp-user-id': self.user_id,
             })
 
-        return self.session.get(
+        if method.lower() in ['post', 'put', 'patch']:
+            headers['Content-Type'] = 'application/json'
+
+        if data:
+            kwargs['data'] = json.dumps(data, separators=(',', ':'))
+
+        return getattr(self.session, method)(
             url,
             headers=headers,
             **kwargs
@@ -195,7 +209,7 @@ class Client(MFPBase):
 
     def _get_content_for_url(self, *args, **kwargs):
         return (
-            self._get_request_for_url(*args, **kwargs).content.decode('utf8')
+            self._request(*args, **kwargs).content.decode('utf8')
         )
 
     def _get_document_for_url(self, url):
@@ -485,6 +499,82 @@ class Client(MFPBase):
             return value
 
         return Volume(ml=value)
+
+    def get_nutrition_goals(self):
+        goals_url = parse.urljoin(self.BASE_API_URL, '/v2/nutrient-goals')
+        result = self._request(goals_url, send_token=True)
+        result.raise_for_status()
+
+        goals = result.json()['items'][0]
+
+        return self._parse_nutrition_goals(goals)
+
+    def set_nutrition_goals(self, goal_data):
+        goals_url = parse.urljoin(self.BASE_API_URL, '/v2/nutrient-goals')
+        result = self._request(goals_url, method='post', send_token=True,
+                               data={u'item': goal_data})
+        result.raise_for_status()
+
+        goals = result.json()['item']
+
+        return self._parse_nutrition_goals(goals)
+
+    def _parse_nutrition_goals(self, goal_data):
+        # TODO, if it's better in an object format like Meal data.
+        return goal_data
+
+    def set_all_nutrition_goals_by_macros(self, calories=None, **goals):
+        """
+        Sets the default as well as all daily goals.
+        If a value is not present, it won't be changed from the
+        existing default.
+        If calories is not present, it will be calculated from macros.
+        """
+        default_goal = self.get_nutrition_goals()['default_goal']
+
+        default_goal = {k: v for k, v in default_goal.items()
+                        if not k.startswith('exercise_')}
+
+        for k, v in goals.items():
+            if k not in default_goal:
+                raise Exception("Unknown nutrition attribute '%s'.")
+            if v is not None:
+                default_goal[k] = v
+
+        macros = {
+            'protein': default_goal['protein'] * 4,
+            'fat': default_goal['fat'] * 9,
+            'carbohydrates': default_goal['carbohydrates'] * 4
+        }
+
+        if calories is None:
+            calories = sum(macros.values())
+
+        default_goal['energy'] = {
+            u'unit': u'calories',
+            u'value': calories
+        }
+        default_goal['day_of_week'] = 'default'
+
+        # Sanity check.
+        new_calories = sum(macros.values())
+        if calories != new_calories:
+            raise Exception("Requested calories '%s' does not add up: %s" %
+                            (calories, macros))
+
+        daily_goals = []
+        for day in calendar.day_name:
+            daily_goal = default_goal.copy()
+            daily_goal['day_of_week'] = day.lower()
+            daily_goals.append(daily_goal)
+
+        goal_data = {
+            u'valid_from': datetime.date.today().isoformat(),
+            u'daily_goals': daily_goals,
+            u'default_goal': default_goal,
+        }
+
+        return self.set_nutrition_goals(goal_data)
 
     def __unicode__(self):
         return u'MyFitnessPal Client for %s' % self.effective_username
