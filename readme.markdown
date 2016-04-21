@@ -206,6 +206,16 @@ Delete a password for a given MyFitnessPal account from your system keyring.
 
 Display meals and totals for a given date.  If no date is specified, totals will be printed for today.
 
+### `get_nutri_goals $USERNAME`
+
+Display default nutrition goal data for a given user. 
+
+### `change_nutri_goals $USERNAME [--carbs=N] [--fat=N] [--protein=N]`
+
+This **overwrites nutrition goal data** for both your default nutrition goal as well as any specific per-day goals.
+Use with care. It sets the Carbs, Fat and Protein goals and updates the total calories needed based on them.
+`N` is in grams.
+
 Hints
 -----
 
