@@ -172,7 +172,7 @@ class Client(MFPBase):
             self.BASE_URL,
             'food/diary/' + username
         ) + '?date=%s' % (
-            date.strftime('%Y-%m-%d')
+            datetime.date.strftime('%Y-%m-%d')
         )
 
     def _get_url_for_measurements(self, page=1, measurement_id=1):
@@ -576,5 +576,41 @@ class Client(MFPBase):
 
         return self.set_nutrition_goals(goal_data)
 
+    def quick_add(self, calories=None, protein=None, fat=None, carbs=None,
+                  meal_name="Snacks"):
+        if set([calories, protein, fat, carbs]) == set([None]):
+            raise Exception("Either calories or macros must be provided.")
+
+        fat = fat or 0
+        protein = protein or 0
+        carbs = carbs or 0
+
+        if calories is None:
+            calories = fat*9 + protein*4 + carbs*4
+
+        meal = {
+            'meal_name': meal_name,
+            'date': str(datetime.date.today()),
+            'type': 'quick_add',
+            'nutritional_contents': {
+                'fat': fat,
+                'protein': protein,
+                'carbohydrates': carbs,
+                'energy': {
+                    'unit': 'calories',
+                    'value': calories
+                }
+            }
+        }
+        return self._add_meal(meal)
+
+    def _add_meal(self, *items):
+        url = parse.urljoin(self.BASE_API_URL, '/v2/diary')
+        result = self._request(url, method='post', send_token=True,
+                               data={u'items': items})
+        result.raise_for_status()
+
+        return result.json()
+        
     def __unicode__(self):
         return u'MyFitnessPal Client for %s' % self.effective_username

@@ -183,3 +183,24 @@ def _print_goals(goals):
     t = Terminal()
     print(t.green(goals['valid_from']))
     pprint(goals['default_goal'])
+
+
+@command(
+    "Quick Add"
+)
+def quick_add(args, *extra, **kwargs):
+    parser = _default_arg_parser()
+    parser.add_argument('--calories', help='Calories', type=int, default=None)
+    parser.add_argument('--protein', help='Protein (g)', type=float, default=None)
+    parser.add_argument('--carbs', help='Carbohydrates (g)', type=float, default=None)
+    parser.add_argument('--fat', help='Fat (g)', type=float, default=None)
+    args = parser.parse_args(extra)
+
+    password = get_password_from_keyring_or_interactive(args.username)
+    client = Client(args.username, password)
+
+    result = client.quick_add(
+        protein=args.protein, fat=args.fat, carbs=args.carbs,
+        calories=args.calories)
+
+    pprint(result)
